@@ -15,8 +15,16 @@
 #include <random>
 
 #include "nm_simplex_solver.hpp"
+#include <boost/numeric/ublas/io.hpp>
+#include <cmath>
+
 
 using namespace cv;
+namespace
+{
+    const std::string windowName = "LED Finder";
+    const int fixedThreshold = 250;
+}
 
 class LedFinder
 {
@@ -28,30 +36,100 @@ public:
     }
 
     typedef std::vector<KeyPoint> KeyPoints;
-    typedef boost::numeric::ublas::c_vector<double, 4> Parameters;
+    typedef boost::numeric::ublas::c_vector<double, 3> Parameters;
 
-    static KeyPoints FindLeds( const Mat &source, const Parameters &parameters)
+    static double clip( double min, double max, double value)
+    {
+        return min + std::fmod( value - min, max - min);
+    }
+
+    static void CookBeforeDetection( const Mat &source, Mat &cooked)
+    {
+        cooked = source.clone();
+        //GaussianBlur( source, cooked, Size{ 3,3}, 0);
+        //blur( source, cooked, Size{5, 5});
+        threshold(cooked, cooked, 254, 255, THRESH_BINARY);
+    }
+
+    KeyPoints FindLeds(  double minDistance, double minArea, double areaRange) const
     {
         using std::vector;
-        Mat cooked;
 
-        threshold(source, cooked, 240, 255, THRESH_BINARY);
+        Mat cooked;
+        CookBeforeDetection( m_baseImage, cooked);
+
 
         SimpleBlobDetector::Params params;
-        params.minDistBetweenBlobs = parameters[1]; // min_dist;
+        params.minDistBetweenBlobs = minDistance;
         params.filterByInertia = false;
         params.filterByConvexity = false;
-        params.filterByColor = false;
         params.filterByCircularity = false;
         params.filterByArea = true;
-        params.minArea = parameters[2]; //(float) min_area;
-        params.maxArea = parameters[3]; //(float) max_area;
+        params.filterByColor = true;
+        params.blobColor = 255;
+        params.minArea = minArea;
+        params.maxArea = minArea + areaRange;
+        params.minThreshold = 254;
+        params.maxThreshold = 254;
 
         Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
         vector<KeyPoint> features;
         detector->detect(cooked, features);
         return features;
+    }
 
+    KeyPoints FindLeds( Parameters parameters) const
+    {
+        // square the parameters to keep them in positive space.
+        parameters = element_prod( parameters, parameters);
+        return FindLeds( parameters[0], parameters[1], parameters[2]);
+    }
+
+    /**
+     * Calculate the cost of a container of features.
+     * If the container is empty, we'll return a random, very high cost result
+     *
+     */
+    double CostOfFeatures( const KeyPoints &points) const
+    {
+        static const double minimalSize = 5;
+        if (points.empty())
+        {
+            // there's a huge 'desert' in the parameter landscape where
+            // we find no features at all. To keep the simplex moving,
+            // randomize the landscape in this zone
+            static std::default_random_engine generator;
+            static std::uniform_real_distribution<double> distribution(7, 100);
+            double noise = distribution(generator);
+            return m_expectedCount * 100 + noise;
+        }
+
+        // calculate the squared deviation (std deviation without the sqrroot)
+        double average = 0.0;
+        for (const auto &point: points)
+        {
+            average += point.size;
+        }
+        average /= points.size();
+
+        double deviation = 0.0;
+        double smallness = 0.0;
+        for (const auto &point: points)
+        {
+            deviation += (point.size - average) * (point.size - average);
+            if (point.size < minimalSize)
+            {
+                smallness += minimalSize - point.size;
+            }
+
+        }
+
+        // this would have been std deviation if I had taken the square root
+        // before division, but that is costly and unnecessary here.
+        deviation /= points.size();
+
+        return (points.size() - m_expectedCount) * (points.size() - m_expectedCount)
+                + deviation * 10;
     }
 
     /**
@@ -61,29 +139,7 @@ public:
     double operator()(
             const Parameters &parameters) const
     {
-
-        auto features = FindLeds( m_baseImage, parameters);
-
-        // the cost is defined as how far off we are of the expected
-        // light count
-        if (features.size() > m_expectedCount)
-        {
-            return (features.size() - m_expectedCount);
-        }
-        else if (features.empty())
-        {
-            // there's a huge 'desert' in the parameter landscape where
-            // we find no features at all. To keep the simplex moving,
-            // randomize the landscape in this zone
-            static std::default_random_engine generator;
-            static std::uniform_real_distribution<double> distribution(7, 100);
-            double noise = distribution(generator);
-            return m_expectedCount + noise;
-        }
-        else
-        {
-            return m_expectedCount - features.size();
-        }
+        return CostOfFeatures( FindLeds( parameters));
     }
 
 private:
@@ -93,7 +149,7 @@ private:
 };
 
 
-void ShowResults(Mat &source, const LedFinder::KeyPoints &features)
+void ShowResults(const Mat &source, const LedFinder::KeyPoints &features)
 {
     std::cout << "Found " << features.size() << " features\n";
 
@@ -101,41 +157,151 @@ void ShowResults(Mat &source, const LedFinder::KeyPoints &features)
     drawKeypoints(source, features, dst, Scalar::all(-1),
             DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
-    const std::string window_name = "LED Finder";
-//    namedWindow(window_name, WINDOW_AUTOSIZE);
-    imshow(window_name, dst);
+    imshow(windowName, dst);
+}
+
+void RunNelderMead( const Mat &base, const Mat &lit)
+{
+    Mat hsv;
+    cvtColor( lit, hsv, CV_BGR2HSV);
+
+    std::vector<Mat> colors;
+    split(hsv, colors);
+
+    Mat &baseForSolving = colors[2];
+
+    imshow( "reds", colors[2]);
+    imshow( "original", lit);
+    namedWindow(windowName, WINDOW_AUTOSIZE);
+
+    // find the best settings for OpenCV to detect the LEDs.
+    const int blue = 2;
+    LedFinder ledFinder{ baseForSolving, 50};
+    Solvers::NmSimplexSolver<3, LedFinder &> solver( ledFinder, 80, 3, true);
+    auto solution = solver.FindMinimun(
+            boost::numeric::ublas::zero_vector<double>(3), 100);
+
+
+    // show the result of those settings
+    std::cout << "Parameters: " << solution << '\n';
+    auto results = ledFinder.FindLeds( solution);
+    Mat thresholded;
+    LedFinder::CookBeforeDetection( baseForSolving, thresholded);
+    ShowResults( lit, results);
+}
+
+int minDist = 0;
+int minArea = 0;
+int maxArea = 0;
+int lowerThreshold = 0;
+int upperThreshold = 0;
+int lowerHue = 0;
+int upperHue = 0;
+Mat tweakBase;
+Mat baseImage;
+
+void ShowTweaked( int, void* )
+{
+    Mat cooked;
+    inRange( tweakBase,
+            Scalar( lowerHue, 0, lowerThreshold),
+            Scalar( upperHue, 255, upperThreshold),
+            cooked);
+
+    SimpleBlobDetector::Params params;
+    params.minDistBetweenBlobs = minDist;
+    params.filterByInertia = false;
+    params.filterByConvexity = false;
+    params.filterByCircularity = false;
+    params.filterByArea = true;
+    params.filterByColor = true;
+    params.blobColor = 255;
+    params.minArea = minArea;
+    params.maxArea = maxArea;
+    params.minThreshold = 150;
+    params.maxThreshold = 254;
+
+    Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
+    std::vector<KeyPoint> features;
+    detector->detect(cooked, features);
+
+    std::cout << "Found " << features.size() << " features\n";
+
+    Mat dst;
+    drawKeypoints(cooked, features, dst, Scalar::all(-1),
+            DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+
+    imshow(windowName, dst);
+    Mat orig;
+    drawKeypoints(baseImage, features, orig, Scalar::all(-1),
+            DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    imshow( "base image", orig);
+
+}
+
+
+void TweakParameters( const Mat &, const Mat &lit)
+{
+    namedWindow(windowName, WINDOW_AUTOSIZE);
+    baseImage = lit;
+    imshow( "base image", lit);
+
+    createTrackbar( "min distance",
+                    windowName, &minDist,
+                    500, ShowTweaked );
+
+    createTrackbar( "min Area",
+                    windowName, &minArea,
+                    2000, ShowTweaked );
+    createTrackbar( "max Area",
+                    windowName, &maxArea,
+                    2000, ShowTweaked );
+
+    createTrackbar( "lower Treshold",
+                    windowName, &lowerThreshold,
+                    300, ShowTweaked );
+    createTrackbar( "upper Threshold",
+                    windowName, &upperThreshold,
+                    300, ShowTweaked );
+
+    createTrackbar( "lower Hue",
+                    windowName, &lowerHue,
+                    300, ShowTweaked );
+    createTrackbar( "upper Hue",
+                    windowName, &upperHue,
+                    300, ShowTweaked );
+
+    cvtColor( lit, tweakBase, CV_BGR2HSV);
+    std::vector<Mat> hsv;
+    split(tweakBase, hsv);
+    imshow("h", hsv[0]);
+    imshow("s", hsv[1]);
+    imshow("v", hsv[2]);
+
+
+    ShowTweaked(0,nullptr);
 }
 
 int main(int argc, char** argv)
 {
 
-    if (argc != 2)
+    if (argc != 3)
     {
-        printf("usage: LedMapping <Image_Path>\n");
+        printf("usage: LedMapping <before image> <lit image>\n");
         return -1;
     }
 
-    Mat image = imread(argv[1], 1);
-    if (!image.data)
+    Mat base = imread(argv[1]);
+    Mat lit = imread( argv[2]);
+    if (!base.data || !lit.data)
     {
-        printf("No image data \n");
+        std::cerr << "No image data!\n";
         return -1;
     }
 
-    // get the blue component out of the image.
-    std::vector<Mat> colors;
-    split(image, colors);
-
-    // find the best settings for OpenCV to detect the LEDs.
-    const int blue = 2;
-    Solvers::NmSimplexSolver<4, LedFinder> solver(LedFinder{ colors[blue], 50 }, 80, 3);
-    auto solution = solver.FindMinimun(
-            boost::numeric::ublas::zero_vector<double>(4));
-
-
-    // show the result of those settings
-    auto results = LedFinder::FindLeds( colors[blue], solution);
-    ShowResults( image, results);
+    //RunNelderMead( base, lit);
+    TweakParameters( base, lit - base);
     waitKey(0);
 
     return 0;
