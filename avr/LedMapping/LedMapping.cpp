@@ -78,8 +78,8 @@ namespace {
 
             while (current_led < number_of_leds)
             {
-                write_block( leds, current_led, number_of_leds, block_size, rgb(32, 0, 0));
-                write_block( leds, current_led, number_of_leds, block_size, rgb(0, 0, 100));
+                write_block( leds, current_led, number_of_leds, block_size, rgb(16, 0, 0));
+                write_block( leds, current_led, number_of_leds, block_size, rgb(0, 0, 16));
             }
             send( leds, channel);
             _delay_ms( frame_delay);
@@ -92,6 +92,31 @@ namespace {
             block_size /= 2;
         }
     }
+
+    template< typename buffer_type>
+    void registration_pattern( buffer_type &leds, uint8_t channel)
+    {
+        static const uint8_t frame_delay_ms = 100; // in ms;
+        static const uint8_t number_of_leds = ws2811::led_buffer_traits<buffer_type>::count;
+        using ws2811::rgb;
+
+        uint8_t current_led = 0;
+        for (uint8_t count = 4; count; --count)
+        {
+            current_led = 0;
+            write_block( leds, current_led, number_of_leds, number_of_leds, rgb( 16, 0, 0));
+            send( leds, channel);
+            _delay_ms( frame_delay_ms);
+
+            current_led = 0;
+            write_block( leds, current_led, number_of_leds, number_of_leds, rgb( 0, 0, 16));
+            send( leds, channel);
+            _delay_ms( frame_delay_ms);
+        }
+        current_led = 0;
+        clear( leds);
+        send( leds, channel);
+    }
 }
 
 ws2811::rgb leds[led_count];
@@ -102,6 +127,7 @@ int main()
     clear( leds);
     for(;;)
     {
+        registration_pattern( leds, channel);
         binary_pattern( leds, channel);
         clear( leds);
         send( leds, channel);
