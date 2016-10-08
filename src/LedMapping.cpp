@@ -16,6 +16,8 @@
 
 #include "nm_simplex_solver.hpp"
 #include <boost/numeric/ublas/io.hpp>
+#include <boost/numeric/ublas/assignment.hpp>
+
 #include <cmath>
 
 
@@ -51,7 +53,7 @@ public:
         threshold(cooked, cooked, 254, 255, THRESH_BINARY);
     }
 
-    KeyPoints FindLeds(  double minDistance, double minArea, double areaRange) const
+    KeyPoints FindLeds(  double minDistance, double minArea, double maxArea) const
     {
         using std::vector;
 
@@ -60,17 +62,23 @@ public:
 
 
         SimpleBlobDetector::Params params;
-        params.minDistBetweenBlobs = minDistance;
+        params.minDistBetweenBlobs = 1;
         params.filterByInertia = false;
         params.filterByConvexity = false;
-        params.filterByCircularity = false;
-        params.filterByArea = true;
+
         params.filterByColor = true;
         params.blobColor = 255;
-        params.minArea = minArea;
-        params.maxArea = minArea + areaRange;
+
+        params.filterByArea = true;
+        params.minArea = 1;
+        params.maxArea = maxArea;
+
         params.minThreshold = 254;
-        params.maxThreshold = 254;
+        params.maxThreshold = 256;
+
+        params.filterByCircularity = true;
+        params.minCircularity = .5;
+        params.maxCircularity = 1.1;
 
         Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
         vector<KeyPoint> features;
@@ -178,6 +186,8 @@ void RunNelderMead( const Mat &base, const Mat &lit)
     const int blue = 2;
     LedFinder ledFinder{ baseForSolving, 50};
     Solvers::NmSimplexSolver<3, LedFinder &> solver( ledFinder, 80, 3, true);
+    LedFinder::Parameters p;
+    p <<= 1,2,3;
     auto solution = solver.FindMinimun(
             boost::numeric::ublas::zero_vector<double>(3), 100);
 
@@ -190,20 +200,22 @@ void RunNelderMead( const Mat &base, const Mat &lit)
     ShowResults( lit, results);
 }
 
-int minDist = 0;
-int minArea = 0;
-int maxArea = 0;
-int lowerThreshold = 0;
-int upperThreshold = 0;
-int lowerHue = 0;
-int upperHue = 0;
+int minDist = 1;
+int minArea = 1;
+int maxArea = 800;
+int lowerThreshold = 100;
+int upperThreshold = 255;
+int lowerHue = 15;
+int upperHue = 115;
+int blurValue = 2;
 Mat tweakBase;
 Mat baseImage;
 
 void ShowTweaked( int, void* )
 {
     Mat cooked;
-    inRange( tweakBase,
+    GaussianBlur( tweakBase, cooked, Size{ 1 + 2 * blurValue, 1 + 2 * blurValue}, 0);;
+    inRange( cooked,
             Scalar( lowerHue, 0, lowerThreshold),
             Scalar( upperHue, 255, upperThreshold),
             cooked);
@@ -211,15 +223,24 @@ void ShowTweaked( int, void* )
     SimpleBlobDetector::Params params;
     params.minDistBetweenBlobs = minDist;
     params.filterByInertia = false;
-    params.filterByConvexity = false;
-    params.filterByCircularity = false;
-    params.filterByArea = true;
+
+    params.filterByConvexity = true;
+    params.minConvexity = 0.5;
+    params.maxConvexity = 1.1;
+
     params.filterByColor = true;
     params.blobColor = 255;
+
+    params.filterByArea = true;
     params.minArea = minArea;
     params.maxArea = maxArea;
+
     params.minThreshold = 150;
     params.maxThreshold = 254;
+
+    params.filterByCircularity = true;
+    params.minCircularity = .5;
+    params.maxCircularity = 1.1;
 
     Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
     std::vector<KeyPoint> features;
@@ -241,7 +262,7 @@ void ShowTweaked( int, void* )
 }
 
 
-void TweakParameters( const Mat &, const Mat &lit)
+void TweakParameters( const Mat &base, const Mat &lit)
 {
     namedWindow(windowName, WINDOW_AUTOSIZE);
     baseImage = lit;
@@ -271,16 +292,30 @@ void TweakParameters( const Mat &, const Mat &lit)
     createTrackbar( "upper Hue",
                     windowName, &upperHue,
                     300, ShowTweaked );
+    createTrackbar( "blur",
+                    windowName, &blurValue,
+                    10, ShowTweaked );
 
     cvtColor( lit, tweakBase, CV_BGR2HSV);
     std::vector<Mat> hsv;
-    split(tweakBase, hsv);
-    imshow("h", hsv[0]);
-    imshow("s", hsv[1]);
-    imshow("v", hsv[2]);
+//    split(tweakBase, hsv);
+//    imshow("h", hsv[0]);
+//    imshow("s", hsv[1]);
+//    imshow("v", hsv[2]);
 
 
     ShowTweaked(0,nullptr);
+}
+
+Mat MakeDifferenceImage( const Mat &base, const Mat &lit)
+{
+    std::vector<Mat> rgb1;
+    std::vector<Mat> rgb2;
+
+    split(base, rgb1);
+    split( lit, rgb2);
+
+    return (rgb1[2] - rgb2[2]);
 }
 
 int main(int argc, char** argv)
@@ -300,8 +335,9 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    //RunNelderMead( base, lit);
-    TweakParameters( base, lit - base);
+    //RunNelderMead( base, lit-base);
+    //TweakParameters( base, lit);
+    //imshow( "diff", MakeDifferenceImage(base, lit));
     waitKey(0);
 
     return 0;

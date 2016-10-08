@@ -13,9 +13,9 @@
 // be known at compilation time, the pin (0-7) can be chosen at run time.
 #define WS2811_PORT PORTC
 
-// send RGB in R,G,B order instead of the standard WS2811 G,R,B order.
+// send RGB in R,G,B order instead of the standard WS2812 G,R,B order.
 // YOU TYPICALLY DO NOT WANT TO DEFINE THIS SYMBOL!
-// It's just that one led string I encountered had R,G,B wired in the "correct" order.
+// It's just that one led string I encountered had R,G,B wired in the "correct" RGB order.
 #define STRAIGHT_RGB
 
 #include "ws2811/ws2811.h"
@@ -117,6 +117,22 @@ namespace {
         clear( leds);
         send( leds, channel);
     }
+
+    template< typename buffer_type>
+    void simple_registration( buffer_type &leds, uint8_t channel, const ws2811::rgb &color)
+    {
+        static const uint8_t number_of_leds = ws2811::led_buffer_traits<buffer_type>::count;
+        static const uint8_t frame_delay_ms = 100; // in ms;
+        for (uint8_t count = 0; count < number_of_leds; ++count)
+        {
+            clear(leds);
+            get( leds, count) = color;
+            send( leds, channel);
+            _delay_ms( frame_delay_ms);
+        }
+        clear( leds);
+        send( leds, channel);
+    }
 }
 
 ws2811::rgb leds[led_count];
@@ -127,10 +143,9 @@ int main()
     clear( leds);
     for(;;)
     {
-        registration_pattern( leds, channel);
-        binary_pattern( leds, channel);
-        clear( leds);
-        send( leds, channel);
+        simple_registration( leds, channel, ws2811::rgb( 0,20,0));
+        simple_registration( leds, channel, ws2811::rgb( 20,0,0));
+        simple_registration( leds, channel, ws2811::rgb( 0,0,20));
         _delay_ms( 2000);
     }
 
