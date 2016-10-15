@@ -51,6 +51,17 @@ namespace {
         }
     }
 
+    template< typename buffer_type>
+    void fill( buffer_type &leds, const ws2811::rgb &color)
+    {
+        for (uint16_t count = 0;
+                count < ws2811::led_buffer_traits<buffer_type>::count;
+                ++count)
+        {
+            get( leds, count) = color;
+        }
+    }
+
     /**
      * Send a sequence to an LED string that can be used to identify individual LEDs.
      * This can be used to identify 2^n LEDs in n steps.
@@ -96,7 +107,7 @@ namespace {
     template< typename buffer_type>
     void registration_pattern( buffer_type &leds, uint8_t channel)
     {
-        static const uint8_t frame_delay_ms = 100; // in ms;
+        static const uint8_t frame_delay_ms = 2000; // in ms;
         static const uint8_t number_of_leds = ws2811::led_buffer_traits<buffer_type>::count;
         using ws2811::rgb;
 
@@ -118,15 +129,32 @@ namespace {
         send( leds, channel);
     }
 
+    /**
+     * Simply flash the LEDs one by one.
+     */
     template< typename buffer_type>
     void simple_registration( buffer_type &leds, uint8_t channel, const ws2811::rgb &color)
     {
+
         static const uint8_t number_of_leds = ws2811::led_buffer_traits<buffer_type>::count;
         static const uint8_t frame_delay_ms = 100; // in ms;
+
+        fill( leds, ws2811::rgb( 128,128,128));
+        send( leds, channel);
+        _delay_ms( 2*frame_delay_ms);
+        clear( leds);
+        send( leds, channel);
+        _delay_ms( 2* frame_delay_ms);
+
         for (uint8_t count = 0; count < number_of_leds; ++count)
         {
-            clear(leds);
+
+            clear( leds);
             get( leds, count) = color;
+            send( leds, channel);
+            _delay_ms( frame_delay_ms);
+
+            clear( leds);
             send( leds, channel);
             _delay_ms( frame_delay_ms);
         }
@@ -143,9 +171,7 @@ int main()
     clear( leds);
     for(;;)
     {
-        simple_registration( leds, channel, ws2811::rgb( 0,20,0));
-        simple_registration( leds, channel, ws2811::rgb( 20,0,0));
-        simple_registration( leds, channel, ws2811::rgb( 0,0,20));
+        simple_registration( leds, channel, ws2811::rgb( 16, 0, 0));
         _delay_ms( 2000);
     }
 
