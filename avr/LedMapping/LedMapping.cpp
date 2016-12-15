@@ -139,7 +139,7 @@ namespace {
         static const uint8_t number_of_leds = ws2811::led_buffer_traits<buffer_type>::count;
         static const uint8_t frame_delay_ms = 100; // in ms;
 
-        fill( leds, ws2811::rgb( 128,128,128));
+        fill( leds, color);
         send( leds, channel);
         _delay_ms( 2*frame_delay_ms);
         clear( leds);
