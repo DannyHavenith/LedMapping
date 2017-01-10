@@ -65,13 +65,20 @@ namespace {
                 const Position8 (&pos)[ws2811::led_buffer_traits<buffer>::count],
                 const ws2811::rgb (&shades)[shade_count])
         {
+            // for each LED we know
             for (uint16_t count = 0; count < m_count; ++count)
             {
-                uint16_t dist = square_distance( pos[count]);
-                if (dist < 256)
+                // if the LED is within the bounding box of our shape.
+                if ( absolute_difference( pos[count].x, m_position.x) < m_size.width
+                     and absolute_difference( pos[count].y, m_position.y) < m_size.height)
                 {
-                    uint8_t index = (dist * shade_count) >> 8;
-                    leds[count] = shades[index];
+                    // calculate if it is within the ellipse.
+                    uint16_t dist = square_distance( pos[count]);
+                    if (dist < 256)
+                    {
+                        uint8_t index = (dist * shade_count) >> 8;
+                        leds[count] = shades[index];
+                    }
                 }
             }
         }
@@ -114,6 +121,9 @@ namespace {
 
     };
 
+    /**
+     * These are hard-coded LED positions that were obtained by running the LedMapping OpenCV registry algorithm.
+     */
     const Position8 pos[] = {
             { 2, 102},
             { 55, 95},
@@ -166,80 +176,65 @@ namespace {
             { 77, 241},
             { 18, 241}
     };
+
+
     const uint8_t led_count = sizeof pos/ sizeof pos[0];
 
 }
 
 using ws2811::rgb;
 
-template< typename buffer_type>
-void demo( buffer_type &buffer)
+void animate(Position8& p1, Size8 s, Position8& v1)
+{
+    p1.x += v1.x;
+    p1.y += v1.y;
+    if (p1.y < s.height / 2 || p1.y > 255 - s.height / 2)
+    {
+        v1.y = -v1.y;
+    }
+    if (p1.x < s.width / 2 || p1.x > 255 - s.width / 2)
+    {
+        v1.x = -v1.x;
+    }
+}
+
+template< typename buffer_type, int shade_count>
+void bouncing_ball( buffer_type &buffer, const rgb (&fades)[shade_count])
+{
+    Position8 p1 = {128,128};
+    Position8 v1 = { 3, 2};
+    Size8 s = {120, 36};
+    for(;;)
+    {
+        ball<buffer_type, shade_count> b1( p1, s);
+
+
+        fill( buffer, rgb(10, 10, 10));
+        b1.draw( buffer, pos, fades);
+
+        send( buffer, channel);
+        _delay_ms( 5);
+
+        animate( p1, s, v1);
+    }
+}
+
+
+rgb leds[led_count];
+int main()
 {
     const rgb fades[] = {
             rgb(0,0,0),
             rgb(0,0,0),
             rgb(0,0,0),
             rgb(0,0,0),
+            rgb(1,1,1),
+            rgb(2,2,2),
+            rgb(4,4,4),
+            rgb(8,8,8),
     };
-
-
-    Position8 p = {128,128};
-    Position8 v = { 1, 1};
-    Size8 s = {90, 28};
-    for(;;)
-    {
-        ball<buffer_type> b( p, s);
-
-
-        fill( buffer, rgb(32, 32, 32));
-        b.draw( buffer, pos, fades);
-        send( buffer, channel);
-        _delay_ms( 1);
-
-        p.x += v.x;
-        p.y += v.y;
-
-        if (p.y < s.height/2 or p.y > 255 - s.height/2)
-        {
-            v.y = -v.y;
-        }
-
-        if (p.x < s.width/2 or p.x > 255 - s.width/2)
-        {
-            v.x = -v.x;
-        }
-
-
-    }
-
-
-}
-
-rgb leds[led_count];
-int main()
-{
 
     DDRC = 255;
     clear( leds);
-    demo( leds);
-
-    for(;;)
-    {
-//        uint8_t y = 0;
-//        do
-//        {
-//            fill( leds, rgb(32,32,32));
-//            for ( uint8_t led = 0; led < led_count;++led)
-//            {
-//                if (pos[led].y <= y and pos[led].y > y - 40)
-//                {
-//                    leds[led] = fades[(y - pos[led].y)/10];
-//                }
-//            }
-//            send( leds, channel);
-//            _delay_ms( 2);
-//            y+=1;
-//        } while (y != 0);
-    }
-
+    bouncing_ball( leds, fades);
 }
