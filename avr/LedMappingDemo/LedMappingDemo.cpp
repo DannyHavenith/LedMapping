@@ -5,9 +5,13 @@
 //  accompanying file LICENSE_1_0.txt or copy at
 //  http://www.boost.org/LICENSE_1_0.txt)
 //
+#include <avr_utilities/devices/uart.h>
+#include <avr_utilities/pin_definitions.hpp>
 #include <avr/io.h>
 #include <util/delay.h>
 #include <stdlib.h>
+#include <avr/pgmspace.h>
+
 // Define the port at which the signal will be sent. The port needs to
 // be known at compilation time, the pin (0-7) can be chosen at run time.
 #define WS2811_PORT PORTC
@@ -17,9 +21,11 @@
 // It's just that one led string I encountered had R,G,B wired in the "correct" RGB order.
 #define STRAIGHT_RGB
 
-#include "ws2811/ws2811.h"
+#include <ws2811/ws2811.h>
 
+serial::uart<> uart( 19200);
 
+IMPLEMENT_UART_INTERRUPT(uart);
 namespace {
     const uint8_t channel = 4;
 
@@ -180,7 +186,7 @@ namespace {
 
     const uint8_t led_count = sizeof pos/ sizeof pos[0];
 
-}
+
 
 using ws2811::rgb;
 
@@ -219,22 +225,195 @@ void bouncing_ball( buffer_type &buffer, const rgb (&fades)[shade_count])
     }
 }
 
+const uint8_t distances2[] =
+{
+        46,
+        66,
+        96,
+        120,
+        141,
+        133,
+        152,
+        175,
+        205,
+        233,
+        239,
+        255,
+        237,
+        205,
+        205,
+        185,
+        158,
+        128,
+        131,
+        108,
+        133,
+        134,
+        112,
+        81,
+        83,
+        72,
+        38,
+        24,
+        58,
+        81,
+        58,
+        85,
+        97,
+        124,
+        121,
+        136,
+        162,
+        189,
+        192,
+        166,
+        148,
+        157,
+        182,
+        201,
+        220,
+        245,
+        242,
+        245,
+        217,
+        213
+};
+
+// distances from the center point.
+const uint8_t distances[] = {
+        88,
+        76,
+        99,
+        107,
+        141,
+        149,
+        179,
+        192,
+        228,
+        251,
+        248,
+        255,
+        228,
+        196,
+        185,
+        155,
+        124,
+        94,
+        83,
+        52,
+        70,
+        69,
+        52,
+        22,
+        20,
+        39,
+        41,
+        55,
+        33,
+        63,
+        76,
+        110,
+        99,
+        109,
+        86,
+        85,
+        120,
+        156,
+        171,
+        155,
+        152,
+        176,
+        190,
+        197,
+        206,
+        233,
+        240,
+        254,
+        230,
+        236
+};
+
+const uint8_t PROGMEM gamma8[] = {
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
+    1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
+    2,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,
+    5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,
+   10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
+   17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25,
+   25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36,
+   37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 50,
+   51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68,
+   69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89,
+   90, 92, 93, 95, 96, 98, 99,101,102,104,105,107,109,110,112,114,
+  115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
+  144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
+  177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
+  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
+
+const uint8_t PROGMEM sin8[] = {
+ 127, 133, 140, 146, 152, 158, 164, 170, 176, 182, 187, 193, 198, 203, 208, 213,
+ 218, 222, 226, 230, 233, 237, 240, 243, 245, 248, 249, 251, 253, 254, 254, 255,
+ 255, 255, 254, 254, 253, 251, 249, 248, 245, 243, 240, 237, 233, 230, 226, 222,
+ 218, 213, 208, 203, 198, 193, 187, 182, 176, 170, 164, 158, 152, 146, 140, 133,
+ 127, 121, 114, 108, 102,  96,  90,  84,  78,  72,  67,  61,  56,  51,  46,  41,
+  36,  32,  28,  24,  21,  17,  14,  11,   9,   6,   5,   3,   1,   0,   0,   0,
+   0,   0,   0,   0,   1,   3,   5,   6,   9,  11,  14,  17,  21,  24,  28,  32,
+  36,  41,  46,  51,  56,  61,  67,  72,  78,  84,  90,  96, 102, 108, 114, 121
+};
+
+
+uint8_t scale( int8_t lhs, uint8_t rhs)
+{
+    return (static_cast<uint16_t>(lhs + 128) * rhs) >> 8;
+}
+
+template< typename buffer_type, uint16_t shade_count>
+void ripples( buffer_type &buffer, const rgb (&fades)[shade_count])
+{
+    PIN_TYPE( B, 0) detector;
+    set( detector);
+    make_input( detector);
+
+    constexpr auto led_count = ws2811::led_buffer_traits<buffer_type>::count;
+    uint16_t offset = 0;
+    const uint8_t b =  pgm_read_byte(&gamma8[128]);
+    const auto ambient_color = rgb{b,b,b};
+//    const auto ambient_color = rgb{0,0,0};
+    for(;;)
+    {
+        fill( buffer, ambient_color);
+        send(buffer, channel);
+        while (not is_set( detector))
+        {
+        }
+
+        for (uint16_t time = 2000; time; --time)
+        {
+            for (uint16_t count = 0; count < led_count; ++count)
+            {
+                get( buffer, count) = fades[ (static_cast<uint16_t>(distances2[count]) - offset) % shade_count];
+            }
+            send( buffer, channel);
+            ++offset;
+            if (offset == shade_count) offset = 0;
+            _delay_ms( 4);
+        }
+    }
+}
+}
 
 rgb leds[led_count];
 int main()
 {
-    const rgb fades[] = {
-            rgb(0,0,0),
-            rgb(0,0,0),
-            rgb(0,0,0),
-            rgb(0,0,0),
-            rgb(1,1,1),
-            rgb(2,2,2),
-            rgb(4,4,4),
-            rgb(8,8,8),
-    };
+    rgb fades[128];
+    for (uint8_t count = 0; count < 128; ++count)
+    {
+        uint8_t b =  pgm_read_byte(&sin8[count])/4;
+        fades[count] = rgb(b,b,b);
+    }
 
     DDRC = 255;
     clear( leds);
-    bouncing_ball( leds, fades);
+    ripples( leds, fades);
 }
