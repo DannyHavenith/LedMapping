@@ -26,6 +26,8 @@
 serial::uart<> uart( 19200);
 
 IMPLEMENT_UART_INTERRUPT(uart);
+PIN_TYPE( B, 0) movement_detector;
+
 namespace {
     const uint8_t channel = 4;
 
@@ -368,6 +370,17 @@ uint8_t scale( int8_t lhs, uint8_t rhs)
     return (static_cast<uint16_t>(lhs + 128) * rhs) >> 8;
 }
 
+/**
+ * Send LED data to an LED string while switching off interrupts.
+ */
+template< typename buffer>
+void send_protected( const buffer &b, uint8_t channel)
+{
+    cli();
+    send( b, channel);
+    sei();
+}
+
 template< typename buffer_type, uint16_t shade_count>
 void ripples( buffer_type &buffer, const rgb (&fades)[shade_count])
 {
@@ -401,19 +414,88 @@ void ripples( buffer_type &buffer, const rgb (&fades)[shade_count])
         }
     }
 }
+
+template< typename buffer_type>
+void fade( buffer_type &leds, bool in = true)
+{
+    constexpr auto led_count = ws2811::led_buffer_traits<buffer_type>::count;
+    const auto base_color = in?rgb( 0,0,0):rgb( 255, 255, 255);
+
+    for (uint16_t count = 0; count < 512; ++count)
+    {
+        fill( leds, base_color);
+        for ( uint8_t led = 0; led < led_count; ++led)
+        {
+            const uint8_t distance = distances[led];
+            if (distance <= count)
+            {
+                uint16_t offset = count-distance;
+                if (offset > 255) offset = 255;
+                if (not in)
+                {
+                    offset = 255 - offset;
+                }
+                const uint8_t br = pgm_read_byte( &gamma8[offset]);
+                get( leds, led) = rgb( br, br, br);
+            }
+        }
+        send_protected( leds, channel);
+        _delay_ms( 2);
+    }
 }
 
 rgb leds[led_count];
+void wait_for_non_movement()
+{
+    constexpr uint16_t timeout = 3000;
+    uint16_t count_down = timeout;
+    while ( count_down--)
+    {
+        if (is_set(movement_detector))
+        {
+            count_down = timeout;
+        }
+        _delay_ms( 10);
+    }
+}
+
+void watch()
+{
+    set( movement_detector);
+    make_input( movement_detector);
+    for (;;)
+    {
+        //fill( leds, rgb(2,2,2));
+        clear( leds);
+        send_protected( leds, channel);
+        uart.send("wait\n");
+        while ( not is_set( movement_detector))
+        {
+        }
+
+        fill( leds, rgb(5, 0, 0));
+        send_protected( leds, channel);
+
+        fade( leds);
+        uart.send("w2\n");
+        wait_for_non_movement();
+        fade( leds, false);
+    }
+}
+
+}
+
 int main()
 {
-    rgb fades[128];
-    for (uint8_t count = 0; count < 128; ++count)
-    {
-        uint8_t b =  pgm_read_byte(&sin8[count])/4;
-        fades[count] = rgb(b,b,b);
-    }
+//    rgb fades[128];
+//    for (uint8_t count = 0; count < 128; ++count)
+//    {
+//        uint8_t b =  pgm_read_byte(&sin8[count])/4;
+//        fades[count] = rgb(b,b,b);
+//    }
 
     DDRC = 255;
     clear( leds);
-    ripples( leds, fades);
+    watch();
+    //ripples( leds, fades);
 }
