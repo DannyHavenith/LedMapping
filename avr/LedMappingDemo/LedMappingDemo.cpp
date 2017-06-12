@@ -11,6 +11,7 @@
 #include <util/delay.h>
 #include <stdlib.h>
 #include <avr/pgmspace.h>
+#include <avr_utilities/esp-link/client.hpp>
 
 // Define the port at which the signal will be sent. The port needs to
 // be known at compilation time, the pin (0-7) can be chosen at run time.
@@ -459,27 +460,44 @@ void wait_for_non_movement()
     }
 }
 
+void wait_for_movement()
+{
+    while (!is_set( movement_detector))
+    {
+    }
+}
+
 void watch()
 {
     set( movement_detector);
     make_input( movement_detector);
+    esp_link::client esp{uart};
+
+    using esp_link::mqtt::setup;
+    using esp_link::mqtt::publish;
+    const char topic[] = "spider/switch/0";
+
+    fill( leds, rgb( 0, 5, 5));
+    send( leds, channel);
+
+    // get startup logging of the uart out of the way.
+    _delay_ms( 2000);     // wait for an eternity.
+    while (not esp.sync()) /*repeat*/;
+
+    esp.execute( setup, nullptr, nullptr, nullptr, nullptr);
+
+
     for (;;)
     {
-        //fill( leds, rgb(2,2,2));
         clear( leds);
         send_protected( leds, channel);
-        uart.send("wait\n");
-        while ( not is_set( movement_detector))
-        {
-        }
+        esp.execute( publish, topic, "0", 0, 0);
+        wait_for_movement();
+        fade( leds, true); // fade in
+        esp.execute( publish, topic, "1", 0, 0);
 
-        fill( leds, rgb(5, 0, 0));
-        send_protected( leds, channel);
-
-        fade( leds);
-        uart.send("w2\n");
         wait_for_non_movement();
-        fade( leds, false);
+        fade( leds, false); // fade out
     }
 }
 
